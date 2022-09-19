@@ -12,9 +12,10 @@ var domain string = config.DOMAIN
 var route string = config.ROUTE
 
 type BG struct {
-	link  string
-	name  string
-	price float32
+	link   string
+	name   string
+	price  float32
+	rating string
 }
 
 func CrawlLinks() []BG {
@@ -40,8 +41,8 @@ func CrawlLinks() []BG {
 	})
 	c.Visit(fmt.Sprintf("https://%s/%s/1", domain, route))
 
-	for _, bg := range bgs {
-		parseOne(&bg, c)
+	for i := 0; i < len(bgs); i++ {
+		parseOne(&bgs[i], c)
 		break
 	}
 
@@ -53,9 +54,5 @@ func parseOne(bg *BG, c *colly.Collector) {
 		fmt.Println("Visiting single BG")
 	})
 
-	c.OnHTML("a", func(r *colly.HTMLElement) {
-		bg.price = 10
-	})
 	c.Visit(bg.link)
-	fmt.Println("Bug here", bg)
 }
