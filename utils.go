@@ -22,6 +22,7 @@ func CrawlLinks() []BG {
 	var bgs []BG
 	c := colly.NewCollector(
 		colly.AllowedDomains(domain),
+		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/105.0.0.0 Safari/537.36"),
 	)
 	c.OnRequest(func(r *colly.Request) {
 		fmt.Println("Visiting", r.URL)
@@ -52,6 +53,19 @@ func CrawlLinks() []BG {
 func parseOne(bg *BG, c *colly.Collector) {
 	c.OnRequest(func(r *colly.Request) {
 		fmt.Println("Visiting single BG")
+		fmt.Println(r.Headers)
+	})
+
+	c.OnResponse(func(r *colly.Response) {
+		fmt.Println(r.Ctx.Get("age"))
+		r.Ctx.ForEach(func(k string, _ interface{}) interface{} {
+			fmt.Println(k)
+			return nil
+		})
+	})
+
+	c.OnHTML("div.rating-overall", func(e *colly.HTMLElement) {
+		fmt.Println("Found!", e)
 	})
 
 	c.Visit(bg.link)
