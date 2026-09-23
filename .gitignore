@@ -1,15 +1,23 @@
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# Secrets
+.env
 
-# Test binary, built with `go test -c`
-*.test
+# Data (never committed)
+data/
+db/
+*.duckdb
+*.duckdb.wal
 
-# Output of the go coverage tool, specifically when used with LiteIDE
-*.out
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# Notebooks
+.ipynb_checkpoints/
+
+# Logs
+*.log
