@@ -100,9 +100,19 @@ size, so thin regions do not top the list on noise.
 pytest
 ```
 
-The tests cover the fetch client's rules (batch size, auth header, host,
-throttling, 202/503 retries, resumability) with a mock transport — no network
-and no token required.
+27 tests, no network and no token required, ~13s:
+
+- `test_fetch.py` — the BGG rules (batch size, auth header, host, throttling,
+  202/503 retries, resumability) against a mock transport.
+- `test_parse.py` — a committed `thing?stats=1` fixture parsed to exact values:
+  expansions excluded, `"Not Ranked"` kept out of the numeric column, the
+  overall rank not confused with a family rank, primary name preferred over
+  alternates, polls and links typed correctly.
+- `test_pipeline.py` — frame, sample, features, models and the combination
+  search on generated data whose ratings are a real function of weight, so the
+  statistical layers have structure to find. Asserts the sample spans the whole
+  ranking, residualising actually removes the weight trend, shrinkage pulls
+  toward zero, and Apriori counts stay monotone across orders.
 
 ## Layout
 
