@@ -69,9 +69,8 @@ def load_ranks(csv_path=RANKS_CSV) -> int:
             """
         )
         con.execute("DROP TABLE ranks_raw")
-        n, ranked = con.execute(
-            "SELECT count(*), count(rank) FROM ranks"
-        ).fetchone()
+        row = con.execute("SELECT count(*), count(rank) FROM ranks").fetchone()
+        n, ranked = row if row else (0, 0)
 
     log.info("loaded %d games into `ranks` (%d ranked)", n, ranked)
     return n
