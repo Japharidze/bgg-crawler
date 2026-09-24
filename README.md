@@ -31,7 +31,8 @@ python -m src.sample                      # 2. stratified sample -> `sample`
 python -m src.fetch                       # 3. fetch thing?stats=1 -> data/raw/thing/
 python -m src.parse                       # 4. XML -> games, game_links, game_polls
 python -m src.features                    # 5. modelling matrix -> `features`
-python -m src.model --keys weight_bin,playtime_bin   # 6. models + ranked regions
+python -m src.model --keys weight_bin,playtime_bin   # 6a. models + ranked regions
+python -m src.combinations --max-order 3             # 6b. search tag combinations
 ```
 
 Step 3 is the slow one: 5 seconds per request, 20 ids per request, so ~6000
@@ -45,6 +46,24 @@ polarization:
 from src.fetch import BGGClient, fetch_rating_comments
 with BGGClient() as c:
     fetch_rating_comments(game_id=13, client=c)
+```
+
+## Combination search
+
+`src.model` only aggregates keys you name, so it answers questions you already
+thought to ask. `src.combinations` does the searching: it enumerates every
+mechanic/category combination of size 1-3 that occurs in at least `--min-games`
+games and scores all of them. Enumeration is Apriori-pruned (a triple can only
+clear the floor if all three of its pairs do), so it never materialises the full
+C(n, 3).
+
+Sort by `lift`, not by mean rating. Two individually well-rated mechanics will
+show a good mean together without the pairing contributing anything; `lift` is
+how far a combination beats the best of its own parts, which is what separates
+"these belong together" from "these are separately popular".
+
+```bash
+python -m src.combinations --min-games 25 --sort lift
 ```
 
 ## What the numbers mean
@@ -63,6 +82,14 @@ Read each region on three numbers together:
   gap, not a proven winner.
 - `median_owned` — reach, which is a different question from rating and is
   modelled separately (`--target log_owned`).
+- `lift` (combination search only) — gain over the best constituent tag.
+
+One thing to watch on the first real run: `src.features` prints per-stratum
+survival against the ratings floor. Low-ranked games mostly have few ratings, so
+a flat `--min-users-rated 200` cuts the bottom strata hardest and quietly pulls
+the modelling set back toward popular games — undoing the stratified sample. If
+the bottom strata keep under ~25% of their draw, the run warns you. Lower the
+floor to 50-100, or accept the noise and let the shrinkage absorb it.
 
 `shrunk_resid` is the sort key: the mean residual pulled toward zero by group
 size, so thin regions do not top the list on noise.
