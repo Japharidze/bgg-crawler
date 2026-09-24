@@ -24,7 +24,6 @@ import pandas as pd
 from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import RidgeCV
-from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import KFold, cross_validate
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import SplineTransformer
