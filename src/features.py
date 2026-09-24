@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -33,14 +34,16 @@ def build_features(
     with connect() as con:
         games = con.execute(
             """
-            SELECT id, name, year, min_players, max_players, playing_time, min_age,
-                   users_rated, average, bayes_average, std_dev,
-                   average_weight, owned, wishing, wanting, trading, rank
-            FROM games
-            WHERE users_rated >= ?
-              AND average IS NOT NULL
-              AND average_weight IS NOT NULL
-              AND average_weight > 0
+            SELECT g.id, g.name, g.year, g.min_players, g.max_players, g.playing_time,
+                   g.min_age, g.users_rated, g.average, g.bayes_average, g.std_dev,
+                   g.average_weight, g.owned, g.wishing, g.wanting, g.trading, g.rank,
+                   s.stratum, s.sample_weight
+            FROM games g
+            LEFT JOIN sample s ON s.id = g.id
+            WHERE g.users_rated >= ?
+              AND g.average IS NOT NULL
+              AND g.average_weight IS NOT NULL
+              AND g.average_weight > 0
             """,
             [min_users_rated],
         ).df()
@@ -52,6 +55,8 @@ def build_features(
 
     if games.empty:
         raise RuntimeError("no games passed the filter - fetch and parse more data first.")
+
+    _report_stratum_survival(min_users_rated)
 
     links = links[links.game_id.isin(games.id)]
     tag_counts = links.groupby(["link_type", "link_value"]).game_id.nunique()
@@ -79,12 +84,14 @@ def build_features(
 
     # Controls and binned design parameters.
     # Stored as labels, not Interval dtype, so DuckDB can round-trip the table.
-    df["weight_bin"] = pd.cut(
-        df.average_weight, bins=WEIGHT_BINS, include_lowest=True
-    ).astype(str)
-    df["playtime_bin"] = pd.cut(
-        df.playing_time, bins=PLAYTIME_BINS, include_lowest=True
-    ).astype(str)
+    # cast: pandas types `cut` as always returning the (bins, labels) tuple,
+    # but that only happens with retbins=True.
+    weight_cut = cast(pd.Series, pd.cut(df.average_weight, bins=WEIGHT_BINS,
+                                        include_lowest=True))
+    playtime_cut = cast(pd.Series, pd.cut(df.playing_time, bins=PLAYTIME_BINS,
+                                          include_lowest=True))
+    df["weight_bin"] = weight_cut.astype(str)
+    df["playtime_bin"] = playtime_cut.astype(str)
     df["player_span"] = (df.max_players - df.min_players).clip(lower=0)
     df["supports_solo"] = (df.min_players <= 1).astype("int8")
     df["supports_two"] = ((df.min_players <= 2) & (df.max_players >= 2)).astype("int8")
@@ -100,6 +107,44 @@ def build_features(
 
     log.info("features: %d games x %d tag columns", len(df), len(tag_cols))
     return df
+
+
+def _report_stratum_survival(min_users_rated: int) -> pd.DataFrame:
+    """How much of each rank stratum survives the ratings floor.
+
+    The stratified sample spans the whole ranking, but low-ranked games mostly
+    have few ratings, so a flat floor cuts the bottom strata hardest and quietly
+    pulls the modelling set back toward popular games - undoing the sampling
+    design. This prints the damage so it is a decision, not an accident.
+    """
+    with connect() as con:
+        survival = con.execute(
+            """
+            SELECT s.stratum,
+                   count(*)                                        AS sampled,
+                   count(*) FILTER (WHERE g.users_rated >= ?)      AS survives,
+                   round(100.0 * count(*) FILTER (WHERE g.users_rated >= ?)
+                         / count(*), 1)                            AS pct,
+                   min(s.rank)                                     AS rank_lo,
+                   max(s.rank)                                     AS rank_hi
+            FROM sample s
+            LEFT JOIN games g ON g.id = s.id
+            GROUP BY s.stratum ORDER BY s.stratum
+            """,
+            [min_users_rated, min_users_rated],
+        ).df()
+
+    log.info("stratum survival at users_rated >= %d:\n%s",
+             min_users_rated, survival.to_string(index=False))
+    thin = survival.loc[survival.pct < 25]
+    if not thin.empty:
+        log.warning(
+            "strata %s keep under 25%% of their sample - the ratings floor is "
+            "undoing the stratification. Lower --min-users-rated (50-100) or accept "
+            "the noise and rely on shrinkage.",
+            list(thin.stratum),
+        )
+    return survival
 
 
 def tag_columns(df: pd.DataFrame) -> list[str]:

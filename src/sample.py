@@ -2,8 +2,14 @@
 
 Why stratified and not "the top N": training on the best-rated games only is
 selection on the outcome. We need the whole range of the response variable, so
-we take an equal-sized draw from each rank stratum and carry the sampling
-weight through to the analysis.
+we take an equal-sized draw from each rank stratum.
+
+Note on `sample_weight`: with equal-sized deciles and a fixed draw per stratum
+the weights come out near-constant, so this design is close to simple random
+sampling and nothing downstream needs to reweight. The column is carried into
+`features` anyway because that stops being true the moment the strata become
+unequal - if you switch to uneven strata, oversample the tail, or the ratings
+floor guts the bottom strata, the weights start to matter and are already there.
 """
 
 from __future__ import annotations
@@ -11,7 +17,7 @@ from __future__ import annotations
 import argparse
 import logging
 
-from src.db import connect
+from src.db import connect, scalar
 
 log = logging.getLogger(__name__)
 
@@ -27,9 +33,9 @@ def build_sample(
     seed: float = 0.42,
 ) -> int:
     with connect() as con:
-        if not con.execute(
-            "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'ranks'"
-        ).fetchone()[0]:
+        if not scalar(
+            con, "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'ranks'"
+        ):
             raise RuntimeError("`ranks` table missing - run src/frame.py first.")
 
         con.execute("SELECT setseed(?)", [seed])
@@ -60,7 +66,7 @@ def build_sample(
             """,
             [min_users_rated],
         )
-        rows = con.execute("SELECT count(*) FROM sample").fetchone()[0]
+        rows = int(scalar(con, "SELECT count(*) FROM sample") or 0)
         breakdown = con.execute(
             "SELECT stratum, count(*), min(rank), max(rank) "
             "FROM sample GROUP BY stratum ORDER BY stratum"
