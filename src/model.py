@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -24,7 +25,9 @@ from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import RidgeCV
 from sklearn.metrics import mean_absolute_error, r2_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold, cross_validate
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import SplineTransformer
 from sklearn.tree import DecisionTreeRegressor
 
 from src.db import connect
@@ -49,25 +52,33 @@ def load_features() -> pd.DataFrame:
 def design_matrix(df: pd.DataFrame, with_tags: bool = True) -> pd.DataFrame:
     cols = CONTROLS + NUMERIC_EXTRAS + (tag_columns(df) if with_tags else [])
     x = df[cols].copy()
-    return x.fillna(x.median(numeric_only=True))
+    # cast: pandas-stubs types DataFrame.fillna as possibly returning a Series.
+    return cast(pd.DataFrame, x.fillna(x.median(numeric_only=True)))
 
 
-def fit_models(df: pd.DataFrame, target: str = "average") -> pd.DataFrame:
-    """Held-out performance for a controls-only baseline and two full models."""
+def fit_models(df: pd.DataFrame, target: str = "average", n_splits: int = 5) -> pd.DataFrame:
+    """Cross-validated performance for a controls-only baseline and full models.
+
+    K-fold rather than one split: with a few thousand games a single 25% test
+    set moves R2 around by several points depending on the seed, which is
+    enough to flip the baseline-vs-tags comparison this table exists to make.
+    """
     y = df[target]
     mask = y.notna()
-    df, y = df[mask], y[mask]
+    df, y = df.loc[mask], y.loc[mask]
 
     x_full = design_matrix(df, with_tags=True)
     x_ctrl = design_matrix(df, with_tags=False)
 
-    idx_train, idx_test = train_test_split(
-        df.index, test_size=0.25, random_state=RANDOM_STATE
-    )
-
     candidates = {
         "mean only": (DummyRegressor(strategy="mean"), x_ctrl),
-        "controls only (ridge)": (RidgeCV(alphas=np.logspace(-3, 3, 25)), x_ctrl),
+        "controls only (spline ridge)": (
+            make_pipeline(
+                SplineTransformer(n_knots=6, degree=3, extrapolation="constant"),
+                RidgeCV(alphas=np.logspace(-3, 3, 25)),
+            ),
+            x_ctrl,
+        ),
         "controls + tags (ridge)": (RidgeCV(alphas=np.logspace(-3, 3, 25)), x_full),
         "controls + tags (tree, depth 5)": (
             DecisionTreeRegressor(max_depth=5, min_samples_leaf=50,
@@ -81,23 +92,29 @@ def fit_models(df: pd.DataFrame, target: str = "average") -> pd.DataFrame:
         ),
     }
 
+    cv = KFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_STATE)
     rows = []
     for label, (estimator, x) in candidates.items():
-        estimator.fit(x.loc[idx_train], y.loc[idx_train])
-        pred = estimator.predict(x.loc[idx_test])
+        scores = cross_validate(
+            estimator, x, y, cv=cv,
+            scoring=("r2", "neg_mean_absolute_error"),
+            n_jobs=1,
+        )
         rows.append(
             {
                 "model": label,
                 "target": target,
-                "r2_holdout": r2_score(y.loc[idx_test], pred),
-                "mae_holdout": mean_absolute_error(y.loc[idx_test], pred),
-                "n_train": len(idx_train),
-                "n_test": len(idx_test),
+                "r2_mean": scores["test_r2"].mean(),
+                "r2_sd": scores["test_r2"].std(),
+                "mae_mean": -scores["test_neg_mean_absolute_error"].mean(),
+                "n": len(y),
+                "folds": n_splits,
             }
         )
 
     results = pd.DataFrame(rows)
-    log.info("held-out performance for `%s`:\n%s", target, results.to_string(index=False))
+    log.info("%d-fold performance for `%s`:\n%s", n_splits, target,
+             results.to_string(index=False))
     return results
 
 
@@ -113,7 +130,15 @@ def residualise(df: pd.DataFrame, target: str = "average") -> pd.Series:
     x = x.fillna(x.median())
     y = df[target]
     mask = y.notna()
-    model = RidgeCV(alphas=np.logspace(-3, 3, 25)).fit(x[mask], y[mask])
+
+    # Splines, not a straight line: the year effect is strongly nonlinear
+    # (ratings climb steeply for recent games and flatten out before ~1990),
+    # and a linear term would leave that curvature in the residual, which is
+    # exactly the artefact the residual exists to remove.
+    model = make_pipeline(
+        SplineTransformer(n_knots=6, degree=3, extrapolation="constant"),
+        RidgeCV(alphas=np.logspace(-3, 3, 25)),
+    ).fit(x.loc[mask], y.loc[mask])
     return pd.Series(y - model.predict(x), index=df.index, name=f"{target}_resid")
 
 
@@ -142,7 +167,7 @@ def design_regions(
         mean_weight=("average_weight", "mean"),
         median_year=("year", "median"),
     )
-    regions = regions[regions.n_games >= min_games].copy()
+    regions = regions.loc[regions.n_games >= min_games].copy()
 
     # Shrink the residual toward 0 by group size so thin regions do not top the
     # list on noise alone (James-Stein style, k tuned to `min_games`).
