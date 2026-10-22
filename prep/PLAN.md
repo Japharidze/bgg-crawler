@@ -27,3 +27,4 @@ If Gate 1 fails: days 4–5 become the reframe-or-writeup branch.
 ## Daily log
 <!-- Day N — date — drill score/time — deliverable status — one-line note -->
 <!-- Day 0 — 2026-10-21 — no drill — token setup, no data yet — prereg next -->
+<!-- Day 1 — 2026-10-22 — no drill — fixed stuck rebase, repo synced — frame + sample next -->
