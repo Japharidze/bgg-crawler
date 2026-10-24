@@ -18,7 +18,8 @@ The token comes from an approved BGG application. It is read from `BGG_TOKEN`
 and sent as `Authorization: Bearer ...` on every request.
 
 Download the ranks dump from <https://boardgamegeek.com/data_dumps/bg_ranks>
-while logged in and save it as `data/ranks.csv`.
+while logged in and save it as `data/ranks.csv`. BGG names the file
+`boardgames_ranks.csv`; rename it, or pass `--csv` to `src.frame`.
 
 ## Pipeline
 
