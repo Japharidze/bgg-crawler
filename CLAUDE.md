@@ -104,7 +104,7 @@ prep/           12-day program: PLAN.md, dayNN/ drills and mistake log
 docs/           PREREGISTRATION.md, findings
 notebooks/      exploration only
 data/, db/      gitignored
-.claude/        skills (drill, review, new-source) and agents (gate-auditor)
+.claude/        skills (drill; planned: review, new-source) and agents (planned: gate-auditor)
 ```
 
 ## Conventions
